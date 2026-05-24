@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any
 
-from sqlalchemy import Boolean, DateTime, Integer, String
+from sqlalchemy import Boolean, DateTime, Integer, JSON, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from database import Base
@@ -35,3 +36,12 @@ class LoginAttempt(Base):
     attempted_at: Mapped[datetime] = mapped_column(
                       DateTime(timezone=True), default=_now, index=True
                   )
+
+
+class DataStore(Base):
+    """Key/value store for dashboard datasets (JSON blobs)."""
+    __tablename__ = "data_store"
+
+    key:        Mapped[str]      = mapped_column(String, primary_key=True)
+    data:       Mapped[Any]      = mapped_column(JSON, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

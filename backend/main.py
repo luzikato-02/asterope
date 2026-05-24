@@ -10,10 +10,12 @@ except ImportError:
     pass
 
 import auth as A
-import data as D
-from database import init_db
+from database import engine, get_db, init_db
 from flask import Flask, abort, jsonify, request
 from flask_cors import CORS
+from models import DataStore
+from seed import ensure_seeded
+from sqlalchemy import inspect as sa_inspect, text
 
 app = Flask(__name__)
 
@@ -27,6 +29,61 @@ CORS(app, origins=_origins, supports_credentials=True)
 with app.app_context():
     init_db()
     A.ensure_admin()
+    ensure_seeded()
+
+
+# ── DB helpers ────────────────────────────────────────────────────────────────
+
+def _ds(key: str):
+    """Fetch a JSON dataset from data_store by key."""
+    with get_db() as db:
+        row = db.get(DataStore, key)
+        return row.data if row else None
+
+
+def _db_info() -> dict:
+    """Return real database statistics."""
+    url     = engine.url
+    dialect = url.get_dialect().name  # 'sqlite' or 'postgresql'
+
+    inspector  = sa_inspect(engine)
+    table_names = inspector.get_table_names()
+
+    _descs = {
+        "users":           "registered users and TOTP credentials",
+        "login_attempts":  "auth audit log — rate limiting",
+        "data_store":      "dashboard datasets (JSON blobs)",
+    }
+
+    table_info = []
+    with get_db() as db:
+        for tbl in sorted(table_names):
+            count = db.scalar(text(f"SELECT COUNT(*) FROM \"{tbl}\""))
+            table_info.append({
+                "name":       tbl,
+                "rows":       count or 0,
+                "last_write": "live",
+                "desc":       _descs.get(tbl, ""),
+            })
+
+    if dialect == "sqlite":
+        db_path = url.database or ""
+        size_mb = round(os.path.getsize(db_path) / 1024 / 1024, 3) if os.path.exists(db_path) else 0
+        return {
+            "name":    os.path.basename(db_path),
+            "path":    os.path.dirname(db_path),
+            "size_mb": size_mb,
+            "tables":  table_info,
+        }
+    else:
+        with get_db() as db:
+            size_bytes = db.scalar(text("SELECT pg_database_size(current_database())")) or 0
+        return {
+            "name":    url.database or "asterope",
+            "path":    f"{url.host}:{url.port or 5432}",
+            "size_mb": round(size_bytes / 1024 / 1024, 2),
+            "tables":  table_info,
+        }
 
 
 # ── Auth helpers ──────────────────────────────────────────────────────────────
@@ -113,6 +170,8 @@ def verify_totp_route():
 @require_auth
 def me():
     user = A.get_user(request.username)
+    if not user:
+        return jsonify({"error": "user not found"}), 404
     return jsonify({"username": request.username, "totp_enabled": user.totp_enabled})
 
 
@@ -121,83 +180,86 @@ def logout_route():
     return jsonify({"ok": True})
 
 
-# ── Protected data routes ─────────────────────────────────────────────────────
+# ── Protected data routes (all DB-backed) ─────────────────────────────────────
 
 @app.get("/api/machines")
 @require_auth
 def get_machines():
-    return jsonify(D.MACHINES)
+    return jsonify(_ds("machines") or [])
 
 @app.get("/api/plant-series")
 @require_auth
 def get_plant_series():
-    return jsonify(D.PLANT_SERIES)
+    return jsonify(_ds("plant_series") or [])
 
 @app.get("/api/history")
 @require_auth
 def get_history():
-    return jsonify(D.HISTORY)
+    return jsonify(_ds("history") or [])
 
 @app.get("/api/shift-history")
 @require_auth
 def get_shift_history():
-    return jsonify(D.SHIFT_HISTORY)
+    return jsonify(_ds("shift_history") or [])
 
 @app.get("/api/recommendations")
 @require_auth
 def get_recommendations():
-    return jsonify(D.RECOMMENDATIONS)
+    return jsonify(_ds("recommendations") or [])
 
 @app.get("/api/anomalies")
 @require_auth
 def get_anomalies():
-    return jsonify(D.ANOMALIES)
+    return jsonify(_ds("anomalies") or [])
 
 @app.get("/api/model-runs")
 @require_auth
 def get_model_runs():
-    return jsonify(D.MODEL_RUNS)
+    return jsonify(_ds("model_runs") or [])
 
 @app.get("/api/features")
 @require_auth
 def get_features():
-    return jsonify(D.FEATURES)
+    return jsonify(_ds("features") or [])
 
 @app.get("/api/clusters")
 @require_auth
 def get_clusters():
-    return jsonify(D.CLUSTERS)
+    return jsonify(_ds("clusters") or [])
 
 @app.get("/api/upload-log")
 @require_auth
 def get_upload_log():
-    return jsonify(D.UPLOAD_LOG)
+    return jsonify(_ds("upload_log") or [])
 
 @app.get("/api/upload-schema")
 @require_auth
 def get_upload_schema():
-    return jsonify(D.UPLOAD_SCHEMA)
+    return jsonify(_ds("upload_schema") or [])
 
 @app.get("/api/sample-parsed-rows")
 @require_auth
 def get_sample_parsed_rows():
-    return jsonify(D.SAMPLE_PARSED_ROWS)
+    return jsonify(_ds("sample_parsed_rows") or [])
 
 @app.get("/api/backfill")
 @require_auth
 def get_backfill():
-    return jsonify({"grid": D.BACKFILL["grid"], "dates": D.BACKFILL["dates"], "meta": D.BACKFILL_META})
+    bf   = _ds("backfill") or {}
+    meta = _ds("backfill_meta") or {}
+    return jsonify({"grid": bf.get("grid", []), "dates": bf.get("dates", []), "meta": meta})
 
 @app.get("/api/db-info")
 @require_auth
 def get_db_info():
-    return jsonify(D.DB_INFO)
+    return jsonify(_db_info())
 
 @app.get("/api/machine-series/<int:seed>")
 @require_auth
 def get_machine_series(seed: int):
     if not (0 <= seed <= 10_000_000):
         abort(400, "seed out of range")
+    import data as D
     return jsonify(D.build_machine_series(seed))
 
 
@@ -205,7 +267,13 @@ def get_machine_series(seed: int):
 
 @app.get("/api/health")
 def health():
-    return jsonify({"status": "ok"})
+    try:
+        with get_db() as db:
+            db.execute(text("SELECT 1"))
+        db_ok = True
+    except Exception:
+        db_ok = False
+    return jsonify({"status": "ok", "db": "ok" if db_ok else "error"})
 
 
 if __name__ == "__main__":
