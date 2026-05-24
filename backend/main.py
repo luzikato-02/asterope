@@ -10,9 +10,8 @@ except ImportError:
     pass
 
 import auth as A
-import blob as B
 from database import engine, get_db, init_db
-from flask import Flask, abort, jsonify, request
+from flask import Flask, abort, jsonify, request, send_from_directory
 from flask_cors import CORS
 from models import DataStore
 from seed import ensure_seeded
@@ -36,9 +35,7 @@ with app.app_context():
 # ── DB helpers ────────────────────────────────────────────────────────────────
 
 def _ds(key: str):
-    """Fetch a JSON dataset — from Vercel Blob if available, otherwise the DB."""
-    if B.available():
-        return B.get_json(key)
+    """Fetch a JSON dataset from the data_store table."""
     with get_db() as db:
         row = db.get(DataStore, key)
         return row.data if row else None
@@ -68,16 +65,6 @@ def _db_info() -> dict:
                 "last_write": "live",
                 "desc":       _descs.get(tbl, ""),
             })
-
-    # Add blob store info when active
-    if B.available():
-        blobs = B.list_blobs()
-        table_info.append({
-            "name":       "vercel_blob (datasets)",
-            "rows":       len(blobs),
-            "last_write": "live",
-            "desc":       "dashboard datasets stored in Vercel Blob Store",
-        })
 
     if dialect == "sqlite":
         db_path = url.database or ""
@@ -287,6 +274,22 @@ def health():
     except Exception:
         db_ok = False
     return jsonify({"status": "ok", "db": "ok" if db_ok else "error"})
+
+
+# ── Frontend catch-all (must be last) ────────────────────────────────────────
+# Serves the Vite build so Vercel can route everything to this function.
+# Static assets (JS/CSS) are served from disk; unknown paths return index.html
+# for client-side routing.
+
+_DIST = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend", "dist"))
+
+@app.route("/", defaults={"path": ""})
+@app.route("/<path:path>")
+def serve_frontend(path: str):
+    target = os.path.join(_DIST, path)
+    if path and os.path.isfile(target):
+        return send_from_directory(_DIST, path)
+    return send_from_directory(_DIST, "index.html")
 
 
 if __name__ == "__main__":
