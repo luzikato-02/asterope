@@ -20,7 +20,14 @@ if _DATABASE_URL:
     _url = _DATABASE_URL.replace("postgres://", "postgresql://", 1)
     engine = create_engine(_url, poolclass=NullPool)
 else:
-    _SQLITE_PATH = os.path.join(os.path.dirname(__file__), "asterope.db")
+    # Vercel's /var/task filesystem is read-only; use /tmp for writable SQLite.
+    # Locally, keep the file next to this module so it persists between runs.
+    _is_vercel = bool(os.environ.get("VERCEL"))
+    _SQLITE_PATH = (
+        "/tmp/asterope.db"
+        if _is_vercel
+        else os.path.join(os.path.dirname(__file__), "asterope.db")
+    )
     engine = create_engine(
         f"sqlite:///{_SQLITE_PATH}",
         connect_args={"check_same_thread": False},

@@ -10,6 +10,7 @@ except ImportError:
     pass
 
 import auth as A
+import blob as B
 from database import engine, get_db, init_db
 from flask import Flask, abort, jsonify, request
 from flask_cors import CORS
@@ -35,24 +36,26 @@ with app.app_context():
 # ── DB helpers ────────────────────────────────────────────────────────────────
 
 def _ds(key: str):
-    """Fetch a JSON dataset from data_store by key."""
+    """Fetch a JSON dataset — from Vercel Blob if available, otherwise the DB."""
+    if B.available():
+        return B.get_json(key)
     with get_db() as db:
         row = db.get(DataStore, key)
         return row.data if row else None
 
 
 def _db_info() -> dict:
-    """Return real database statistics."""
-    url     = engine.url
-    dialect = url.get_dialect().name  # 'sqlite' or 'postgresql'
+    """Return real database/storage statistics."""
+    url      = engine.url
+    dialect  = url.get_dialect().name
 
-    inspector  = sa_inspect(engine)
+    inspector   = sa_inspect(engine)
     table_names = inspector.get_table_names()
 
     _descs = {
-        "users":           "registered users and TOTP credentials",
-        "login_attempts":  "auth audit log — rate limiting",
-        "data_store":      "dashboard datasets (JSON blobs)",
+        "users":          "registered users and TOTP credentials",
+        "login_attempts": "auth audit log — rate limiting",
+        "data_store":     "dashboard datasets (JSON blobs, local dev only)",
     }
 
     table_info = []
@@ -65,6 +68,16 @@ def _db_info() -> dict:
                 "last_write": "live",
                 "desc":       _descs.get(tbl, ""),
             })
+
+    # Add blob store info when active
+    if B.available():
+        blobs = B.list_blobs()
+        table_info.append({
+            "name":       "vercel_blob (datasets)",
+            "rows":       len(blobs),
+            "last_write": "live",
+            "desc":       "dashboard datasets stored in Vercel Blob Store",
+        })
 
     if dialect == "sqlite":
         db_path = url.database or ""
