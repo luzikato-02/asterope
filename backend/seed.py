@@ -80,7 +80,7 @@ def _db_seed(force: bool = False) -> None:
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def is_seeded() -> bool:
-    return B._blob_is_seeded() if B.available() else _db_is_seeded()
+    return _blob_is_seeded() if B.available() else _db_is_seeded()
 
 
 def seed(force: bool = False) -> None:
