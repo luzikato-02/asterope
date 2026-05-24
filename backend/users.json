@@ -1,0 +1,8 @@
+{
+  "admin": {
+    "password_hash": "scrypt:32768:8:1$80nCNggAKKdRFezu$8473a4420284508f3533f2b3e96e4a63fe37f095d8957da9334c79afddfaa0e09735984aa9af9af7b50cc80ba5776955c0d2c1e400acf0e530e653c5778bd1fc",
+    "totp_secret": "MLX7T2IBJIAV24EDJMXATUU3QU4TEEFA",
+    "totp_enabled": true,
+    "pending_totp_secret": null
+  }
+}

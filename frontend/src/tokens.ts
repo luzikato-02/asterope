@@ -1,0 +1,18 @@
+export const C = {
+  bg:     '#0a0a0a',
+  panel:  '#111111',
+  panel2: '#161616',
+  ink:    '#e8e6e0',
+  ink2:   '#a8a59c',
+  ink3:   '#6e6a60',
+  ink4:   '#3f3c36',
+  rule:   '#1f1d1a',
+  ruleS:  '#161412',
+  hi:     '#e8e6e0',
+  amber:  '#c98a3a',
+  warn:   '#c45a3a',
+  ok:     '#7a9166',
+  red:    '#a14545',
+  sans:   "'Geist', 'Inter', system-ui, sans-serif",
+  mono:   "'Geist Mono', 'JetBrains Mono', 'IBM Plex Mono', monospace",
+} as const
