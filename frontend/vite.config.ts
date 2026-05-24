@@ -7,7 +7,7 @@ export default defineConfig({
     host: true,        // bind to 0.0.0.0 so Codespaces can reach it
     port: 5173,
     strictPort: true,
-    allowedHosts: 'all', // allow *.app.github.dev Codespace domains
+    allowedHosts: true,  // allow *.app.github.dev Codespace domains
     proxy: {
       '/api': {
         target: 'http://localhost:8000',
